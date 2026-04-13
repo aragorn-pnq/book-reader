@@ -1,0 +1,6 @@
+anthropic
+python-dotenv
+ebooklib
+beautifulsoup4
+lxml
+streamlit
