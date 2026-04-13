@@ -8,7 +8,10 @@ from epub_parser import process_epub
 from prompts import SUMMARY_SYSTEM, SUMMARY_PROMPT, QA_SYSTEM
 
 load_dotenv()
-api_key = os.getenv("ANTHROPIC_API_KEY") or st.secrets.get("ANTHROPIC_API_KEY")
+try:
+    api_key = st.secrets["ANTHROPIC_API_KEY"]
+except Exception:
+    api_key = os.getenv("ANTHROPIC_API_KEY")
 client = anthropic.Anthropic(api_key=api_key)
 
 # ── Page config ────────────────────────────────────────────────────────────
