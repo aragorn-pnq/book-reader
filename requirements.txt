@@ -4,3 +4,4 @@ ebooklib
 beautifulsoup4
 lxml
 streamlit
+requests

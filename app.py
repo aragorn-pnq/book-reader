@@ -6,6 +6,7 @@ from dotenv import load_dotenv
 
 from epub_parser import process_epub
 from prompts import SUMMARY_SYSTEM, SUMMARY_PROMPT, QA_SYSTEM
+import storage
 
 load_dotenv()
 try:
@@ -33,6 +34,7 @@ st.markdown("""
 # ── Session state defaults ─────────────────────────────────────────────────
 for key, default in {
     "book": None,
+    "book_id": None,
     "chapters": [],
     "selected_idx": None,
     "summaries": {},      # idx → summary text
@@ -146,23 +148,76 @@ Chapter: {chapter['title']}
             yield text
 
 
+def load_book_from_storage(book_record: dict):
+    """Download EPUB from Supabase, parse and return (book, chapters)."""
+    epub_bytes = storage.download_epub(book_record["epub_path"])
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".epub") as tmp:
+        tmp.write(epub_bytes)
+        tmp_path = tmp.name
+    book = process_epub(tmp_path)
+    os.unlink(tmp_path)
+    return book, build_chapter_list(book)
+
+
 # ── Sidebar ────────────────────────────────────────────────────────────────
 with st.sidebar:
     st.title("📚 Book Reader")
 
-    uploaded = st.file_uploader("Upload an EPUB", type=["epub"])
+    # -- Library: previously saved books --
+    try:
+        saved_books = storage.list_books()
+    except Exception:
+        saved_books = []
+
+    if saved_books:
+        st.markdown("**Library**")
+        for b in saved_books:
+            is_active = (st.session_state.book_id == b["id"])
+            if st.button(
+                b["title"],
+                key=f"lib_{b['id']}",
+                use_container_width=True,
+                type="primary" if is_active else "secondary",
+            ):
+                if not is_active:
+                    with st.spinner(f"Loading {b['title']}..."):
+                        book, chapters = load_book_from_storage(b)
+                    st.session_state.book = book
+                    st.session_state.book_id = b["id"]
+                    st.session_state.chapters = chapters
+                    st.session_state.epub_name = b["id"]
+                    st.session_state.selected_idx = None
+                    st.session_state.summaries = {}
+                    st.session_state.chats = {}
+                    st.rerun()
+        st.divider()
+
+    # -- Upload new book --
+    st.markdown("**Upload new book**")
+    uploaded = st.file_uploader("EPUB file", type=["epub"], label_visibility="collapsed")
 
     if uploaded:
         if uploaded.name != st.session_state.epub_name:
-            # New book — parse it
             with st.spinner("Loading book..."):
+                epub_bytes = uploaded.read()
                 with tempfile.NamedTemporaryFile(delete=False, suffix=".epub") as tmp:
-                    tmp.write(uploaded.read())
+                    tmp.write(epub_bytes)
                     tmp_path = tmp.name
                 book = process_epub(tmp_path)
                 os.unlink(tmp_path)
 
+            book_id = storage.make_book_id(book.metadata.title, book.metadata.authors)
+
+            # Save to Supabase if not already saved
+            try:
+                if not storage.get_book_record(book_id):
+                    with st.spinner("Saving to library..."):
+                        storage.save_book(book, epub_bytes, uploaded.name)
+            except Exception:
+                pass
+
             st.session_state.book = book
+            st.session_state.book_id = book_id
             st.session_state.chapters = build_chapter_list(book)
             st.session_state.epub_name = uploaded.name
             st.session_state.selected_idx = None
@@ -179,7 +234,6 @@ with st.sidebar:
         current_section = ""
 
         for i, ch in enumerate(chapters):
-            # Section header
             if ch["section"] and ch["section"] != current_section:
                 st.markdown(f"<small style='color:gray'>{ch['section']}</small>",
                             unsafe_allow_html=True)
@@ -217,6 +271,8 @@ if idx is None:
     st.stop()
 
 chapter = chapters[idx]
+book_id = st.session_state.book_id
+chapter_key = storage.make_chapter_key(chapter["section"], chapter["title"])
 
 # Chapter header
 st.markdown(f"## {chapter['title']}")
@@ -226,36 +282,73 @@ st.divider()
 
 # ── Summary ────────────────────────────────────────────────────────────────
 if idx not in st.session_state.summaries:
-    with st.spinner("Generating summary..."):
-        summary_text = ""
-        summary_placeholder = st.empty()
-        for chunk in stream_summary(book, chapter):
-            summary_text += chunk
-            summary_placeholder.markdown(summary_text)
+    # Check Supabase before calling Claude
+    cached_summary = None
+    if book_id:
+        try:
+            cached_summary = storage.load_summary(book_id, chapter_key)
+        except Exception:
+            pass
 
-    st.session_state.summaries[idx] = summary_text
+    if cached_summary:
+        # Load summary and chat from Supabase — no API calls needed
+        st.session_state.summaries[idx] = cached_summary
+        if idx not in st.session_state.chats:
+            try:
+                saved_msgs = storage.load_messages(book_id, chapter_key)
+                if saved_msgs:
+                    st.session_state.chats[idx] = saved_msgs
+            except Exception:
+                pass
+        st.rerun()
 
-    # Seed chat with opening question
-    seed_messages = [
-        {"role": "user", "content": "Please ask me the first reflection question to get us started."}
-    ]
-    opening = ""
-    with client.messages.stream(
-        model="claude-sonnet-4-6",
-        max_tokens=256,
-        system=QA_SYSTEM,
-        messages=[
-            {"role": "user", "content": f"Chapter: {chapter['title']}\nSummary:\n{summary_text}"},
-            {"role": "assistant", "content": "I have read the chapter and summary. Ready to discuss."},
-        ] + seed_messages,
-    ) as stream:
-        for text in stream.text_stream:
-            opening += text
+    else:
+        # Generate summary via Claude
+        with st.spinner("Generating summary..."):
+            summary_text = ""
+            summary_placeholder = st.empty()
+            for chunk in stream_summary(book, chapter):
+                summary_text += chunk
+                summary_placeholder.markdown(summary_text)
 
-    st.session_state.chats[idx] = [
-        {"role": "assistant", "content": opening}
-    ]
-    st.rerun()
+        st.session_state.summaries[idx] = summary_text
+
+        # Persist summary
+        if book_id:
+            try:
+                storage.save_summary(
+                    book_id, chapter_key,
+                    chapter["title"], chapter["section"],
+                    summary_text,
+                )
+            except Exception:
+                pass
+
+        # Generate opening reflection question
+        opening = ""
+        with client.messages.stream(
+            model="claude-sonnet-4-6",
+            max_tokens=256,
+            system=QA_SYSTEM,
+            messages=[
+                {"role": "user", "content": f"Chapter: {chapter['title']}\nSummary:\n{summary_text}"},
+                {"role": "assistant", "content": "I have read the chapter and summary. Ready to discuss."},
+                {"role": "user", "content": "Please ask me the first reflection question to get us started."},
+            ],
+        ) as stream:
+            for text in stream.text_stream:
+                opening += text
+
+        st.session_state.chats[idx] = [{"role": "assistant", "content": opening}]
+
+        # Persist opening message
+        if book_id:
+            try:
+                storage.save_message(book_id, chapter_key, "assistant", opening)
+            except Exception:
+                pass
+
+        st.rerun()
 
 else:
     st.markdown(st.session_state.summaries[idx])
@@ -277,6 +370,13 @@ if user_input:
     with st.chat_message("user"):
         st.markdown(user_input)
 
+    # Persist user message
+    if book_id:
+        try:
+            storage.save_message(book_id, chapter_key, "user", user_input)
+        except Exception:
+            pass
+
     with st.chat_message("assistant"):
         reply = ""
         placeholder = st.empty()
@@ -290,3 +390,10 @@ if user_input:
 
     chat_history.append({"role": "assistant", "content": reply})
     st.session_state.chats[idx] = chat_history
+
+    # Persist assistant reply
+    if book_id:
+        try:
+            storage.save_message(book_id, chapter_key, "assistant", reply)
+        except Exception:
+            pass
