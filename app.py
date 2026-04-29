@@ -166,9 +166,8 @@ with st.sidebar:
     # -- Library: previously saved books --
     try:
         saved_books = storage.list_books()
-    except Exception as e:
+    except Exception:
         saved_books = []
-        st.error(f"Library load error: {e}")
 
     if saved_books:
         st.markdown("**Library**")
@@ -214,8 +213,8 @@ with st.sidebar:
                 if not storage.get_book_record(book_id):
                     with st.spinner("Saving to library..."):
                         storage.save_book(book, epub_bytes, uploaded.name)
-            except Exception as e:
-                st.error(f"Save book error: {e}")
+            except Exception:
+                pass
 
             st.session_state.book = book
             st.session_state.book_id = book_id
