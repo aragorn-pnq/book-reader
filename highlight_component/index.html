@@ -174,10 +174,16 @@
       document.getElementById("toolbar").classList.remove("visible");
       document.getElementById("hint").style.display = "";
 
-      toStreamlit({
+      // Send real value + fallback hardcoded to test communication
+      const payload = selectedText
+        ? { selected_text: selectedText, comment: comment }
+        : { selected_text: "TEST_VALUE", comment: "TEST_COMMENT" };
+
+      window.parent.postMessage({
+        isStreamlitMessage: true,
         type: "streamlit:componentValue",
-        value: { selected_text: selectedText, comment: comment }
-      });
+        value: payload
+      }, "*");
 
       selectedText = "";
       savedRange   = null;
