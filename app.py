@@ -266,13 +266,9 @@ with st.sidebar:
                             st.error(f"Sync failed: {_e}")
                 else:
                     _auth_url = google_docs.get_auth_url(book_id=_bid)
-                    st.markdown(
-                        f'<a href="{_auth_url}" target="_self" style="display:block;'
-                        'text-align:center;background:#4285F4;color:white;padding:8px;'
-                        'border-radius:6px;text-decoration:none;font-size:14px;">'
-                        "Sign in with Google</a>",
-                        unsafe_allow_html=True,
-                    )
+                    st.markdown(f"[Sign in with Google]({_auth_url})")
+                    st.caption("DEBUG — auth URL:")
+                    st.code(_auth_url[:120], language=None)
         st.divider()
 
     # -- Upload new book --
@@ -442,35 +438,29 @@ else:
             saved_hls = []
         st.session_state.highlights[idx] = saved_hls
 
-    existing_hls = st.session_state.highlights[idx]
+    existing_hls  = st.session_state.highlights[idx]
     summary_text  = st.session_state.summaries[idx]
 
-    # Build HTML with existing highlights marked in yellow
-    import html as _html
-    def _render_summary_html(text, highlights):
-        escaped = _html.escape(text)
-        for h in sorted(highlights, key=lambda x: -len(x.get("selected_text", ""))):
-            hl_esc = _html.escape(h.get("selected_text", ""))
-            tip = _html.escape(h.get("comment", ""))
-            tooltip = f' title="{tip}"' if tip else ""
-            escaped = escaped.replace(
-                hl_esc,
-                f'<mark style="background:#fff3b0;border-bottom:2px solid #e6b800;cursor:help;"{tooltip}>{hl_esc}</mark>',
-                1,
-            )
-        paras = "".join(f"<p style='margin-bottom:1rem'>{p}</p>" for p in escaped.split("\n\n") if p.strip())
-        return f"""
-        <div style="font-family:Georgia,serif;font-size:16px;line-height:1.8;
-                    color:#333;max-height:500px;overflow-y:auto;padding:8px 16px;
-                    border:1px solid #eee;border-radius:6px;">
-          {paras}
-        </div>"""
+    # Show summary with proper markdown rendering
+    st.markdown(summary_text)
 
-    st.components.v1.html(_render_summary_html(summary_text, existing_hls), height=520, scrolling=False)
+    # Show saved highlights as yellow cards
+    if existing_hls:
+        st.markdown("**Your highlights:**")
+        for h in existing_hls:
+            comment_line = f"  \n*{h['comment']}*" if h.get("comment") else ""
+            st.markdown(
+                f"<div style='background:#fff3b0;border-left:4px solid #e6b800;"
+                f"padding:10px 14px;border-radius:4px;margin-bottom:8px;"
+                f"font-size:14px;line-height:1.6'>"
+                f"📌 {h['selected_text']}{('<br><em style=\"color:#666\">' + h['comment'] + '</em>') if h.get('comment') else ''}"
+                f"</div>",
+                unsafe_allow_html=True,
+            )
 
     # ── Add highlight form ─────────────────────────────────────────────────
     with st.expander("📌 Add a highlight", expanded=False):
-        st.caption("Select text above, copy it (Ctrl+C), then paste it here.")
+        st.caption("Select & copy any text from the summary above (Ctrl+C), then paste it here.")
         with st.form("highlight_form", clear_on_submit=True):
             hl_text    = st.text_area("Highlighted text", placeholder="Paste the text you selected...", height=80)
             hl_comment = st.text_input("Comment (optional)")
