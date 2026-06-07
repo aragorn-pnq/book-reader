@@ -2,11 +2,13 @@ import os
 import tempfile
 import anthropic
 import streamlit as st
+import streamlit.components.v1 as components
 from dotenv import load_dotenv
 
 from epub_parser import process_epub
 from prompts import SUMMARY_SYSTEM, SUMMARY_PROMPT, QA_SYSTEM
 import storage
+import google_docs
 
 load_dotenv()
 try:
@@ -40,11 +42,37 @@ for key, default in {
     "summaries": {},      # idx → summary text
     "chats": {},          # idx → list of {role, content}
     "epub_name": "",
+    "highlights": {},     # idx → list of highlight dicts
+    "google_creds": None,
+    "google_doc_url": None,
+    "google_auth_book_id": None,
+    "last_highlight": {},  # idx → last processed highlight value
 }.items():
     if key not in st.session_state:
         st.session_state[key] = default
 
+# ── Google OAuth callback ─────────────────────────────────────────────────
+_params = st.query_params
+if "code" in _params and st.session_state.google_creds is None:
+    _code = _params["code"]
+    _book_id = _params.get("state", "")
+    try:
+        _creds = google_docs.exchange_code(_code)
+        st.session_state.google_creds = _creds
+        st.session_state.google_auth_book_id = _book_id
+        st.query_params.clear()
+        st.rerun()
+    except Exception as _e:
+        st.error(f"Google sign-in failed: {_e}")
+        st.query_params.clear()
+
 # ── Helpers ────────────────────────────────────────────────────────────────
+# Declare highlight component (static HTML component, no build needed)
+_highlight_component = components.declare_component(
+    "highlight_component",
+    path=os.path.join(os.path.dirname(__file__), "highlight_component"),
+)
+
 SKIP_TITLES = {
     "cover", "copyright", "table of contents", "dedication",
     "further reading", "resources", "acknowledgments", "acknowledgements",
@@ -190,6 +218,61 @@ with st.sidebar:
                     st.session_state.summaries = {}
                     st.session_state.chats = {}
                     st.rerun()
+        st.divider()
+
+    # -- Google Docs sync --
+    if st.session_state.book_id:
+        st.markdown("**Highlights**")
+        _bid = st.session_state.book_id
+        _book_title = st.session_state.book.metadata.title if st.session_state.book else ""
+
+        # Auto-sync if we just returned from OAuth for this book
+        if (
+            st.session_state.google_creds is not None
+            and st.session_state.google_auth_book_id == _bid
+            and st.session_state.google_doc_url is None
+        ):
+            with st.spinner("Syncing to Google Docs..."):
+                try:
+                    _unsynced = storage.load_unsynced_highlights(_bid)
+                    _url = google_docs.sync_to_doc(
+                        st.session_state.google_creds, _book_title, _unsynced
+                    )
+                    storage.mark_highlights_synced(_bid)
+                    st.session_state.google_doc_url = _url
+                    st.session_state.google_auth_book_id = None
+                except Exception as _e:
+                    st.error(f"Sync failed: {_e}")
+
+        if st.session_state.google_doc_url:
+            st.success("Synced!")
+            st.markdown(f"[Open Google Doc]({st.session_state.google_doc_url})")
+            if st.button("Sync again", use_container_width=True):
+                st.session_state.google_doc_url = None
+                st.rerun()
+        else:
+            if st.button("Sync highlights to Google Docs", use_container_width=True):
+                if st.session_state.google_creds is not None:
+                    with st.spinner("Syncing..."):
+                        try:
+                            _unsynced = storage.load_unsynced_highlights(_bid)
+                            _url = google_docs.sync_to_doc(
+                                st.session_state.google_creds, _book_title, _unsynced
+                            )
+                            storage.mark_highlights_synced(_bid)
+                            st.session_state.google_doc_url = _url
+                            st.rerun()
+                        except Exception as _e:
+                            st.error(f"Sync failed: {_e}")
+                else:
+                    _auth_url = google_docs.get_auth_url(book_id=_bid)
+                    st.markdown(
+                        f'<a href="{_auth_url}" target="_self" style="display:block;'
+                        'text-align:center;background:#4285F4;color:white;padding:8px;'
+                        'border-radius:6px;text-decoration:none;font-size:14px;">'
+                        "Sign in with Google</a>",
+                        unsafe_allow_html=True,
+                    )
         st.divider()
 
     # -- Upload new book --
@@ -352,6 +435,48 @@ if idx not in st.session_state.summaries:
 
 else:
     st.markdown(st.session_state.summaries[idx])
+
+# ── Chapter Text + Highlighting ────────────────────────────────────────────
+with st.expander("Chapter Text (select any passage to highlight)", expanded=False):
+    # Load highlights from Supabase if not yet in session
+    if idx not in st.session_state.highlights:
+        try:
+            saved_hls = storage.load_highlights(book_id, chapter_key) if book_id else []
+        except Exception:
+            saved_hls = []
+        st.session_state.highlights[idx] = saved_hls
+
+    existing_hls = st.session_state.highlights[idx]
+    chapter_text = get_chapter_text(book, chapter["hrefs"])
+
+    hl_result = _highlight_component(
+        chapter_text=chapter_text,
+        highlights=existing_hls,
+        key=f"hl_{idx}",
+    )
+
+    # Process a new highlight only if it's different from the last one we saved
+    if hl_result and hl_result != st.session_state.last_highlight.get(idx):
+        st.session_state.last_highlight[idx] = hl_result
+        new_hl = {
+            "book_id": book_id,
+            "chapter_key": chapter_key,
+            "chapter_title": chapter["title"],
+            "selected_text": hl_result["selected_text"],
+            "comment": hl_result.get("comment", ""),
+            "synced_to_docs": False,
+        }
+        st.session_state.highlights[idx].append(new_hl)
+        if book_id:
+            try:
+                storage.save_highlight(
+                    book_id, chapter_key, chapter["title"],
+                    hl_result["selected_text"], hl_result.get("comment", ""),
+                )
+            except Exception:
+                pass
+        # Reset doc URL so sidebar shows "sync" again
+        st.session_state.google_doc_url = None
 
 st.divider()
 st.markdown("### Discussion")

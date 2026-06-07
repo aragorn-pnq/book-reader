@@ -198,3 +198,64 @@ def load_messages(book_id: str, chapter_key: str) -> list:
     )
     _raise(resp, "load_messages")
     return resp.json()
+
+
+# ── Highlights ─────────────────────────────────────────────────────────────
+
+def save_highlight(
+    book_id: str,
+    chapter_key: str,
+    chapter_title: str,
+    selected_text: str,
+    comment: str,
+) -> None:
+    resp = requests.post(
+        _db_url("highlights"),
+        headers=_headers(),
+        json={
+            "book_id": book_id,
+            "chapter_key": chapter_key,
+            "chapter_title": chapter_title,
+            "selected_text": selected_text,
+            "comment": comment,
+        },
+    )
+    _raise(resp, "save_highlight")
+
+
+def load_highlights(book_id: str, chapter_key: str) -> list:
+    resp = requests.get(
+        _db_url("highlights"),
+        headers=_headers({"Accept": "application/json"}),
+        params={
+            "book_id": f"eq.{book_id}",
+            "chapter_key": f"eq.{chapter_key}",
+            "order": "id",
+        },
+    )
+    _raise(resp, "load_highlights")
+    return resp.json()
+
+
+def load_unsynced_highlights(book_id: str) -> list:
+    resp = requests.get(
+        _db_url("highlights"),
+        headers=_headers({"Accept": "application/json"}),
+        params={
+            "book_id": f"eq.{book_id}",
+            "synced_to_docs": "eq.false",
+            "order": "id",
+        },
+    )
+    _raise(resp, "load_unsynced_highlights")
+    return resp.json()
+
+
+def mark_highlights_synced(book_id: str) -> None:
+    resp = requests.patch(
+        _db_url("highlights"),
+        headers=_headers(),
+        params={"book_id": f"eq.{book_id}"},
+        json={"synced_to_docs": True},
+    )
+    _raise(resp, "mark_highlights_synced")

@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: Georgia, serif;
+      font-size: 16px;
+      line-height: 1.8;
+      color: #333;
+      background: white;
+    }
+    #toolbar {
+      position: sticky;
+      top: 0;
+      background: #fffbea;
+      border-bottom: 2px solid #f0c800;
+      padding: 10px 14px;
+      display: none;
+      align-items: center;
+      gap: 10px;
+      z-index: 100;
+    }
+    #toolbar.visible { display: flex; }
+    #toolbar .preview {
+      font-size: 13px;
+      color: #555;
+      font-style: italic;
+      flex: 1;
+      min-width: 0;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    #toolbar textarea {
+      flex: 2;
+      height: 34px;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      padding: 5px 8px;
+      font-size: 13px;
+      font-family: sans-serif;
+      resize: none;
+    }
+    #toolbar .btns { display: flex; gap: 6px; flex-shrink: 0; }
+    #toolbar button {
+      padding: 6px 13px;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 13px;
+    }
+    #save-btn { background: #4a90d9; color: white; font-weight: 600; }
+    #cancel-btn { background: #e0e0e0; color: #444; }
+    #content { padding: 16px; }
+    p { margin-bottom: 1.1rem; }
+    .hl {
+      background: #fff3b0;
+      border-bottom: 2px solid #e6b800;
+      cursor: help;
+    }
+  </style>
+</head>
+<body>
+  <div id="toolbar">
+    <span class="preview" id="sel-preview"></span>
+    <textarea id="comment-input" placeholder="Add a comment (optional)..."></textarea>
+    <div class="btns">
+      <button id="save-btn">Save</button>
+      <button id="cancel-btn">✕</button>
+    </div>
+  </div>
+  <div id="content"><em style="color:#aaa">Loading chapter text...</em></div>
+
+  <script>
+    let selectedText = "";
+    let savedRange = null;
+
+    window.parent.postMessage({ type: "streamlit:componentReady", apiVersion: 1 }, "*");
+
+    window.addEventListener("message", (event) => {
+      if (event.data.type === "streamlit:render") {
+        const { chapter_text, highlights } = event.data.args;
+        renderContent(chapter_text || "", highlights || []);
+      }
+    });
+
+    function esc(str) {
+      return String(str)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;");
+    }
+
+    function renderContent(text, highlights) {
+      const paragraphs = text.split(/\n\n+/).filter(p => p.trim());
+      let html = paragraphs.map(p => `<p>${esc(p.trim())}</p>`).join("");
+
+      // Apply saved highlights (longest first to avoid substring conflicts)
+      const sorted = [...highlights].sort(
+        (a, b) => b.selected_text.length - a.selected_text.length
+      );
+      sorted.forEach(h => {
+        const escaped = esc(h.selected_text);
+        const tip = h.comment ? ` title="${esc(h.comment)}"` : "";
+        html = html.replace(escaped, `<span class="hl"${tip}>${escaped}</span>`);
+      });
+
+      document.getElementById("content").innerHTML = html;
+      sendHeight();
+    }
+
+    // Detect text selection
+    document.addEventListener("mouseup", (e) => {
+      if (e.target.closest("#toolbar")) return;
+      const sel = window.getSelection();
+      const text = sel ? sel.toString().trim() : "";
+      if (text.length > 5) {
+        selectedText = text;
+        savedRange = sel.rangeCount > 0 ? sel.getRangeAt(0).cloneRange() : null;
+        const preview = `"${text.substring(0, 55)}${text.length > 55 ? "…" : ""}"`;
+        document.getElementById("sel-preview").textContent = preview;
+        document.getElementById("comment-input").value = "";
+        document.getElementById("toolbar").classList.add("visible");
+        setTimeout(() => document.getElementById("comment-input").focus(), 30);
+      }
+    });
+
+    document.getElementById("save-btn").addEventListener("click", () => {
+      const comment = document.getElementById("comment-input").value.trim();
+
+      // Wrap selection in yellow span immediately (visual feedback)
+      if (savedRange) {
+        try {
+          const span = document.createElement("span");
+          span.className = "hl";
+          if (comment) span.title = comment;
+          savedRange.surroundContents(span);
+          window.getSelection().removeAllRanges();
+        } catch (_) { /* cross-element selection — skip visual wrap */ }
+      }
+
+      document.getElementById("toolbar").classList.remove("visible");
+      window.parent.postMessage({
+        type: "streamlit:componentValue",
+        value: { selected_text: selectedText, comment: comment }
+      }, "*");
+
+      selectedText = "";
+      savedRange = null;
+      sendHeight();
+    });
+
+    document.getElementById("cancel-btn").addEventListener("click", () => {
+      document.getElementById("toolbar").classList.remove("visible");
+      window.getSelection().removeAllRanges();
+      selectedText = "";
+      savedRange = null;
+    });
+
+    function sendHeight() {
+      window.parent.postMessage({
+        type: "streamlit:setFrameHeight",
+        height: document.body.scrollHeight + 24
+      }, "*");
+    }
+
+    window.addEventListener("resize", sendHeight);
+  </script>
+</body>
+</html>

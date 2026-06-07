@@ -5,3 +5,6 @@ beautifulsoup4
 lxml
 streamlit
 requests
+google-auth
+google-auth-oauthlib
+google-api-python-client
