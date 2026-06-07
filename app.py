@@ -470,9 +470,11 @@ else:
                     book_id, chapter_key, chapter["title"],
                     hl_result["selected_text"], hl_result.get("comment", ""),
                 )
-            except Exception:
-                pass
+                st.toast("Highlight saved!", icon="✅")
+            except Exception as e:
+                st.toast(f"Save failed: {e}", icon="❌")
         st.session_state.google_doc_url = None
+        st.rerun()
 
 st.divider()
 st.markdown("### Discussion")
