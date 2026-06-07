@@ -33,19 +33,25 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# Suppress Streamlit's Ctrl+C "Clear cache" dialog
+# Block Streamlit's Ctrl+C "Clear caches" shortcut.
+# Registers on window (above document) in capture phase so it fires before Streamlit's listener.
 components.html("""
 <script>
 (function() {
-    var doc = window.parent.document;
-    doc.addEventListener('keydown', function(e) {
-        if ((e.ctrlKey || e.metaKey) && (e.key === 'c' || e.key === 'C')) {
-            e.stopImmediatePropagation();
-        }
-    }, true);
+    var win = window.parent;
+    if (!win.__ctrlC_blocked) {
+        win.__ctrlC_blocked = true;
+        win.addEventListener('keydown', function(e) {
+            if ((e.key === 'c' || e.key === 'C') && (e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey) {
+                e.stopPropagation();
+                e.stopImmediatePropagation();
+                // Do NOT call preventDefault() — Ctrl+C copy must still work
+            }
+        }, true);
+    }
 })();
 </script>
-""", height=0)
+""", height=1)
 
 # ── Session state defaults ─────────────────────────────────────────────────
 for key, default in {
