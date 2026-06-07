@@ -453,6 +453,7 @@ with st.expander("Chapter Text (select any passage to highlight)", expanded=Fals
         chapter_text=chapter_text,
         highlights=existing_hls,
         key=f"hl_{idx}",
+        height=624,
     )
 
     # Process a new highlight only if it's different from the last one we saved

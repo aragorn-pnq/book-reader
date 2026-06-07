@@ -3,7 +3,15 @@
 <head>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
-    body {
+
+    html, body {
+      height: 100%;
+      overflow: hidden;
+    }
+
+    #root {
+      height: 600px;
+      overflow-y: auto;
       font-family: Georgia, serif;
       font-size: 16px;
       line-height: 1.8;
@@ -12,20 +20,21 @@
     }
 
     #toolbar {
+      position: sticky;
+      top: 0;
       background: #fffbea;
-      border: 2px solid #f0c800;
-      border-radius: 8px;
+      border-bottom: 2px solid #f0c800;
       padding: 10px 14px;
-      margin: 8px 16px;
       display: none;
       align-items: center;
       gap: 10px;
+      z-index: 100;
     }
     #toolbar.visible { display: flex; }
 
     #toolbar .preview {
       font-size: 13px;
-      color: #555;
+      color: #666;
       font-style: italic;
       flex: 1;
       min-width: 0;
@@ -51,14 +60,16 @@
       cursor: pointer;
       font-size: 13px;
     }
-    #save-btn { background: #4a90d9; color: white; font-weight: 600; }
+    #save-btn  { background: #4a90d9; color: white; font-weight: 600; }
     #cancel-btn { background: #e0e0e0; color: #444; }
 
     #hint {
       font-size: 12px;
       color: #aaa;
-      padding: 4px 16px 0;
+      padding: 6px 16px;
       font-style: italic;
+      background: #fafafa;
+      border-bottom: 1px solid #eee;
     }
 
     #content { padding: 16px; }
@@ -72,23 +83,30 @@
   </style>
 </head>
 <body>
-  <div id="hint">Select any text below to highlight it</div>
-  <div id="toolbar">
-    <span class="preview" id="sel-preview"></span>
-    <textarea id="comment-input" placeholder="Add a comment (optional)..."></textarea>
-    <div class="btns">
-      <button id="save-btn">Save</button>
-      <button id="cancel-btn">✕</button>
+  <div id="root">
+    <div id="toolbar">
+      <span class="preview" id="sel-preview"></span>
+      <textarea id="comment-input" placeholder="Add a comment (optional)..."></textarea>
+      <div class="btns">
+        <button id="save-btn">Save</button>
+        <button id="cancel-btn">✕</button>
+      </div>
     </div>
+    <div id="hint">Select any text to highlight it</div>
+    <div id="content"><em style="color:#aaa">Loading...</em></div>
   </div>
-  <div id="content"><em style="color:#aaa">Loading...</em></div>
 
   <script>
+    const ROOT = document.getElementById("root");
     let selectedText = "";
-    let savedRange = null;
+    let savedRange   = null;
 
+    // Tell Streamlit we exist
     window.parent.postMessage({ type: "streamlit:componentReady", apiVersion: 1 }, "*");
+    // Fixed height — always 600px
+    window.parent.postMessage({ type: "streamlit:setFrameHeight", height: 624 }, "*");
 
+    // Receive data from Streamlit
     window.addEventListener("message", (event) => {
       if (event.data.type === "streamlit:render") {
         const { chapter_text, highlights } = event.data.args;
@@ -105,55 +123,43 @@
     }
 
     function renderContent(text, highlights) {
-      const paragraphs = text.split(/\n\n+/).filter(p => p.trim());
-      let html = paragraphs.map(p => `<p>${esc(p.trim())}</p>`).join("");
+      const paras = text.split(/\n\n+/).filter(p => p.trim());
+      let html = paras.map(p => `<p>${esc(p.trim())}</p>`).join("");
 
-      const sorted = [...highlights].sort(
-        (a, b) => b.selected_text.length - a.selected_text.length
-      );
-      sorted.forEach(h => {
-        const escaped = esc(h.selected_text);
-        const tip = h.comment ? ` title="${esc(h.comment)}"` : "";
-        html = html.replace(escaped, `<span class="hl"${tip}>${escaped}</span>`);
-      });
+      // Apply saved highlights (longest first)
+      [...highlights]
+        .sort((a, b) => b.selected_text.length - a.selected_text.length)
+        .forEach(h => {
+          const escaped = esc(h.selected_text);
+          const tip = h.comment ? ` title="${esc(h.comment)}"` : "";
+          html = html.replace(escaped, `<span class="hl"${tip}>${escaped}</span>`);
+        });
 
       document.getElementById("content").innerHTML = html;
-      sendHeight();
     }
 
-    function showToolbar(text) {
-      const preview = `"${text.substring(0, 55)}${text.length > 55 ? "…" : ""}"`;
-      document.getElementById("sel-preview").textContent = preview;
-      document.getElementById("comment-input").value = "";
-      document.getElementById("hint").style.display = "none";
-      document.getElementById("toolbar").classList.add("visible");
-      sendHeight();
-      setTimeout(() => document.getElementById("comment-input").focus(), 30);
-    }
-
-    function hideToolbar() {
-      document.getElementById("toolbar").classList.remove("visible");
-      document.getElementById("hint").style.display = "";
-      sendHeight();
-    }
-
-    document.addEventListener("mouseup", (e) => {
+    // Detect text selection
+    ROOT.addEventListener("mouseup", (e) => {
       if (e.target.closest("#toolbar")) return;
-      // Small delay so selection is finalised
-      setTimeout(() => {
-        const sel = window.getSelection();
-        const text = sel ? sel.toString().trim() : "";
-        if (text.length > 5) {
-          selectedText = text;
-          savedRange = sel.rangeCount > 0 ? sel.getRangeAt(0).cloneRange() : null;
-          showToolbar(text);
-        }
-      }, 10);
+      const sel = window.getSelection();
+      const text = sel ? sel.toString().trim() : "";
+      if (text.length > 5) {
+        selectedText = text;
+        savedRange   = sel.rangeCount > 0 ? sel.getRangeAt(0).cloneRange() : null;
+        document.getElementById("sel-preview").textContent =
+          `"${text.substring(0, 55)}${text.length > 55 ? "…" : ""}"`;
+        document.getElementById("comment-input").value = "";
+        document.getElementById("hint").style.display   = "none";
+        document.getElementById("toolbar").classList.add("visible");
+        ROOT.scrollTop = 0;   // scroll to top so toolbar is visible
+        setTimeout(() => document.getElementById("comment-input").focus(), 50);
+      }
     });
 
     document.getElementById("save-btn").addEventListener("click", () => {
       const comment = document.getElementById("comment-input").value.trim();
 
+      // Wrap selection yellow immediately
       if (savedRange) {
         try {
           const span = document.createElement("span");
@@ -161,35 +167,28 @@
           if (comment) span.title = comment;
           savedRange.surroundContents(span);
           window.getSelection().removeAllRanges();
-        } catch (_) { /* cross-element selection */ }
+        } catch (_) { /* cross-element selection — skip visual */ }
       }
 
-      hideToolbar();
+      document.getElementById("toolbar").classList.remove("visible");
+      document.getElementById("hint").style.display = "";
+
       window.parent.postMessage({
         type: "streamlit:componentValue",
         value: { selected_text: selectedText, comment: comment }
       }, "*");
 
       selectedText = "";
-      savedRange = null;
-      sendHeight();
+      savedRange   = null;
     });
 
     document.getElementById("cancel-btn").addEventListener("click", () => {
-      hideToolbar();
+      document.getElementById("toolbar").classList.remove("visible");
+      document.getElementById("hint").style.display = "";
       window.getSelection().removeAllRanges();
       selectedText = "";
-      savedRange = null;
+      savedRange   = null;
     });
-
-    function sendHeight() {
-      window.parent.postMessage({
-        type: "streamlit:setFrameHeight",
-        height: document.body.scrollHeight + 24
-      }, "*");
-    }
-
-    window.addEventListener("resize", sendHeight);
   </script>
 </body>
 </html>
