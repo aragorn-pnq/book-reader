@@ -30,7 +30,7 @@
 
     #toolbar .preview {
       font-size: 13px;
-      color: #666;
+      color: #555;
       font-style: italic;
       flex: 1;
       min-width: 0;
@@ -97,19 +97,14 @@
     let savedRange   = null;
 
     function toStreamlit(msg) {
-      window.parent.postMessage(
-        Object.assign({ isStreamlitMessage: true }, msg),
-        "*"
-      );
+      window.parent.postMessage(Object.assign({ isStreamlitMessage: true }, msg), "*");
     }
 
-    // Set up message listener FIRST, then signal ready
     window.addEventListener("message", (event) => {
       const d = event.data;
       if (!d || !d.isStreamlitMessage) return;
       if (d.type === "streamlit:render") {
-        const { chapter_text, highlights } = d.args || {};
-        renderContent(chapter_text || "", highlights || []);
+        renderContent((d.args || {}).chapter_text || "", (d.args || {}).highlights || []);
       }
     });
 
@@ -140,51 +135,35 @@
       document.getElementById("content").innerHTML = html;
     }
 
-    // ── Selection ─────────────────────────────────────────────────────────
-    document.addEventListener("selectionchange", () => {
+    // ── Selection: read directly on mouseup, no delay ─────────────────────
+    function handleSelectionEnd() {
       const sel = window.getSelection();
-      const text = sel ? sel.toString().trim() : "";
+      if (!sel) return;
+      const text = sel.toString().trim();
       if (text.length >= 3) {
         selectedText = text;
         savedRange = sel.rangeCount > 0 ? sel.getRangeAt(0).cloneRange() : null;
+        document.getElementById("sel-preview").textContent =
+          `"${text.substring(0, 60)}${text.length > 60 ? "…" : ""}"`;
+        document.getElementById("comment-input").value = "";
+        document.getElementById("hint").style.display = "none";
+        document.getElementById("toolbar").classList.add("visible");
+        ROOT.scrollTop = 0;
       }
-    });
-
-    document.addEventListener("mouseup", (e) => {
-      if (e.target.closest("#toolbar")) return;
-      setTimeout(() => {
-        const text = (window.getSelection() || {}).toString
-          ? window.getSelection().toString().trim()
-          : "";
-        const finalText = text.length >= 3 ? text : selectedText;
-        if (finalText.length >= 3) {
-          if (text.length >= 3) {
-            selectedText = text;
-            const s = window.getSelection();
-            if (s && s.rangeCount > 0) savedRange = s.getRangeAt(0).cloneRange();
-          }
-          showToolbar(finalText);
-        }
-      }, 20);
-    });
-
-    function showToolbar(text) {
-      document.getElementById("sel-preview").textContent =
-        `"${text.substring(0, 55)}${text.length > 55 ? "…" : ""}"`;
-      document.getElementById("comment-input").value = "";
-      document.getElementById("toolbar").classList.add("visible");
-      ROOT.scrollTop = 0;
-      setTimeout(() => document.getElementById("comment-input").focus(), 50);
     }
 
-    function hideToolbar() {
-      document.getElementById("toolbar").classList.remove("visible");
-    }
+    document.addEventListener("mouseup",  (e) => {
+      if (!e.target.closest("#toolbar")) handleSelectionEnd();
+    });
+    document.addEventListener("pointerup", (e) => {
+      if (!e.target.closest("#toolbar")) handleSelectionEnd();
+    });
 
-    // ── Save / Cancel ─────────────────────────────────────────────────────
+    // ── Save ──────────────────────────────────────────────────────────────
     document.getElementById("save-btn").addEventListener("click", () => {
       const comment = document.getElementById("comment-input").value.trim();
-      if (savedRange) {
+
+      if (savedRange && selectedText) {
         try {
           const span = document.createElement("span");
           span.className = "hl";
@@ -193,20 +172,26 @@
           window.getSelection().removeAllRanges();
         } catch (_) {}
       }
-      hideToolbar();
+
+      document.getElementById("toolbar").classList.remove("visible");
+      document.getElementById("hint").style.display = "";
+
       toStreamlit({
         type: "streamlit:componentValue",
         value: { selected_text: selectedText, comment: comment }
       });
+
       selectedText = "";
-      savedRange = null;
+      savedRange   = null;
     });
 
+    // ── Cancel ────────────────────────────────────────────────────────────
     document.getElementById("cancel-btn").addEventListener("click", () => {
-      hideToolbar();
+      document.getElementById("toolbar").classList.remove("visible");
+      document.getElementById("hint").style.display = "";
       window.getSelection().removeAllRanges();
       selectedText = "";
-      savedRange = null;
+      savedRange   = null;
     });
   </script>
 </body>
