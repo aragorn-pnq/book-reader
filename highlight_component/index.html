@@ -4,10 +4,7 @@
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
 
-    html, body {
-      height: 100%;
-      overflow: hidden;
-    }
+    html, body { height: 100%; overflow: hidden; }
 
     #root {
       height: 600px;
@@ -60,16 +57,15 @@
       cursor: pointer;
       font-size: 13px;
     }
-    #save-btn  { background: #4a90d9; color: white; font-weight: 600; }
+    #save-btn   { background: #4a90d9; color: white; font-weight: 600; }
     #cancel-btn { background: #e0e0e0; color: #444; }
 
-    #hint {
-      font-size: 12px;
-      color: #aaa;
-      padding: 6px 16px;
-      font-style: italic;
-      background: #fafafa;
-      border-bottom: 1px solid #eee;
+    #status {
+      font-size: 11px;
+      padding: 3px 16px;
+      background: #f0f0f0;
+      color: #888;
+      border-bottom: 1px solid #e0e0e0;
     }
 
     #content { padding: 16px; }
@@ -92,28 +88,32 @@
         <button id="cancel-btn">✕</button>
       </div>
     </div>
-    <div id="hint">Select any text to highlight it</div>
-    <div id="content"><em style="color:#aaa">Loading...</em></div>
+    <div id="status">Loading chapter text...</div>
+    <div id="content"></div>
   </div>
 
   <script>
-    const ROOT = document.getElementById("root");
+    const ROOT   = document.getElementById("root");
+    const STATUS = document.getElementById("status");
+
     let selectedText = "";
     let savedRange   = null;
+    let pendingShow  = false;  // flag: mouseup fired with valid selection
 
-    // Tell Streamlit we exist
-    window.parent.postMessage({ type: "streamlit:componentReady", apiVersion: 1 }, "*");
-    // Fixed height — always 600px
-    window.parent.postMessage({ type: "streamlit:setFrameHeight", height: 624 }, "*");
-
-    // Receive data from Streamlit
+    // ── Streamlit handshake ───────────────────────────────────────────────
     window.addEventListener("message", (event) => {
       if (event.data.type === "streamlit:render") {
         const { chapter_text, highlights } = event.data.args;
+        STATUS.textContent = "Select any text to highlight it";
         renderContent(chapter_text || "", highlights || []);
       }
     });
 
+    // Signal ready AFTER listener is set up
+    window.parent.postMessage({ type: "streamlit:componentReady", apiVersion: 1 }, "*");
+    window.parent.postMessage({ type: "streamlit:setFrameHeight", height: 624 }, "*");
+
+    // ── Render ────────────────────────────────────────────────────────────
     function esc(str) {
       return String(str)
         .replace(/&/g, "&amp;")
@@ -126,7 +126,6 @@
       const paras = text.split(/\n\n+/).filter(p => p.trim());
       let html = paras.map(p => `<p>${esc(p.trim())}</p>`).join("");
 
-      // Apply saved highlights (longest first)
       [...highlights]
         .sort((a, b) => b.selected_text.length - a.selected_text.length)
         .forEach(h => {
@@ -138,28 +137,56 @@
       document.getElementById("content").innerHTML = html;
     }
 
-    // Detect text selection
-    ROOT.addEventListener("mouseup", (e) => {
-      if (e.target.closest("#toolbar")) return;
+    // ── Selection detection ───────────────────────────────────────────────
+    // Use selectionchange to track what's selected at any moment
+    document.addEventListener("selectionchange", () => {
       const sel = window.getSelection();
       const text = sel ? sel.toString().trim() : "";
-      if (text.length > 5) {
+      if (text.length >= 3) {
         selectedText = text;
         savedRange   = sel.rangeCount > 0 ? sel.getRangeAt(0).cloneRange() : null;
-        document.getElementById("sel-preview").textContent =
-          `"${text.substring(0, 55)}${text.length > 55 ? "…" : ""}"`;
-        document.getElementById("comment-input").value = "";
-        document.getElementById("hint").style.display   = "none";
-        document.getElementById("toolbar").classList.add("visible");
-        ROOT.scrollTop = 0;   // scroll to top so toolbar is visible
-        setTimeout(() => document.getElementById("comment-input").focus(), 50);
       }
     });
 
+    // Use mouseup on document to trigger showing the toolbar
+    document.addEventListener("mouseup", (e) => {
+      if (e.target.closest("#toolbar")) return;
+
+      // Give browser 20ms to finalise the selection, then show toolbar
+      setTimeout(() => {
+        const sel = window.getSelection();
+        const text = sel ? sel.toString().trim() : "";
+
+        // Also use whatever selectionchange captured
+        const finalText = text.length >= 3 ? text : selectedText;
+
+        if (finalText.length >= 3) {
+          if (text.length >= 3) {
+            selectedText = text;
+            savedRange   = sel && sel.rangeCount > 0 ? sel.getRangeAt(0).cloneRange() : savedRange;
+          }
+          showToolbar(finalText);
+        }
+      }, 20);
+    });
+
+    function showToolbar(text) {
+      document.getElementById("sel-preview").textContent =
+        `"${text.substring(0, 55)}${text.length > 55 ? "…" : ""}"`;
+      document.getElementById("comment-input").value = "";
+      document.getElementById("toolbar").classList.add("visible");
+      ROOT.scrollTop = 0;
+      setTimeout(() => document.getElementById("comment-input").focus(), 50);
+    }
+
+    function hideToolbar() {
+      document.getElementById("toolbar").classList.remove("visible");
+    }
+
+    // ── Save / Cancel ─────────────────────────────────────────────────────
     document.getElementById("save-btn").addEventListener("click", () => {
       const comment = document.getElementById("comment-input").value.trim();
 
-      // Wrap selection yellow immediately
       if (savedRange) {
         try {
           const span = document.createElement("span");
@@ -167,12 +194,10 @@
           if (comment) span.title = comment;
           savedRange.surroundContents(span);
           window.getSelection().removeAllRanges();
-        } catch (_) { /* cross-element selection — skip visual */ }
+        } catch (_) { /* cross-element selection */ }
       }
 
-      document.getElementById("toolbar").classList.remove("visible");
-      document.getElementById("hint").style.display = "";
-
+      hideToolbar();
       window.parent.postMessage({
         type: "streamlit:componentValue",
         value: { selected_text: selectedText, comment: comment }
@@ -183,8 +208,7 @@
     });
 
     document.getElementById("cancel-btn").addEventListener("click", () => {
-      document.getElementById("toolbar").classList.remove("visible");
-      document.getElementById("hint").style.display = "";
+      hideToolbar();
       window.getSelection().removeAllRanges();
       selectedText = "";
       savedRange   = null;

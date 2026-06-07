@@ -70,7 +70,7 @@ if "code" in _params and st.session_state.google_creds is None:
 # Declare highlight component (static HTML component, no build needed)
 _highlight_component = components.declare_component(
     "highlight_component",
-    path=os.path.join(os.path.dirname(__file__), "highlight_component"),
+    path="highlight_component",
 )
 
 SKIP_TITLES = {
