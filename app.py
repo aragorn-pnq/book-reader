@@ -31,15 +31,21 @@ st.markdown("""
     .summary-box { border-left: 3px solid #4a90d9; padding-left: 1rem; }
     [data-testid="stSidebar"] { min-width: 280px; max-width: 320px; }
 </style>
-<script>
-// Prevent Streamlit from intercepting Ctrl+C (which triggers "Clear cache" dialog)
-document.addEventListener('keydown', function(e) {
-    if ((e.ctrlKey || e.metaKey) && (e.key === 'c' || e.key === 'C')) {
-        e.stopImmediatePropagation();
-    }
-}, true);
-</script>
 """, unsafe_allow_html=True)
+
+# Suppress Streamlit's Ctrl+C "Clear cache" dialog
+components.html("""
+<script>
+(function() {
+    var doc = window.parent.document;
+    doc.addEventListener('keydown', function(e) {
+        if ((e.ctrlKey || e.metaKey) && (e.key === 'c' || e.key === 'C')) {
+            e.stopImmediatePropagation();
+        }
+    }, true);
+})();
+</script>
+""", height=0)
 
 # ── Session state defaults ─────────────────────────────────────────────────
 for key, default in {
