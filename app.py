@@ -445,38 +445,58 @@ else:
     existing_hls = st.session_state.highlights[idx]
     summary_text  = st.session_state.summaries[idx]
 
-    hl_result = _highlight_component(
-        chapter_text=summary_text,
-        highlights=existing_hls,
-        key=f"hl_{idx}",
-        height=624,
-    )
+    # Build HTML with existing highlights marked in yellow
+    import html as _html
+    def _render_summary_html(text, highlights):
+        escaped = _html.escape(text)
+        for h in sorted(highlights, key=lambda x: -len(x.get("selected_text", ""))):
+            hl_esc = _html.escape(h.get("selected_text", ""))
+            tip = _html.escape(h.get("comment", ""))
+            tooltip = f' title="{tip}"' if tip else ""
+            escaped = escaped.replace(
+                hl_esc,
+                f'<mark style="background:#fff3b0;border-bottom:2px solid #e6b800;cursor:help;"{tooltip}>{hl_esc}</mark>',
+                1,
+            )
+        paras = "".join(f"<p style='margin-bottom:1rem'>{p}</p>" for p in escaped.split("\n\n") if p.strip())
+        return f"""
+        <div style="font-family:Georgia,serif;font-size:16px;line-height:1.8;
+                    color:#333;max-height:500px;overflow-y:auto;padding:8px 16px;
+                    border:1px solid #eee;border-radius:6px;">
+          {paras}
+        </div>"""
 
-    st.caption(f"DEBUG component value: {hl_result}")
+    st.components.v1.html(_render_summary_html(summary_text, existing_hls), height=520, scrolling=False)
 
-    # Save new highlight if it's different from the last one processed
-    if hl_result and hl_result != st.session_state.last_highlight.get(idx):
-        st.session_state.last_highlight[idx] = hl_result
-        new_hl = {
-            "book_id": book_id,
-            "chapter_key": chapter_key,
-            "chapter_title": chapter["title"],
-            "selected_text": hl_result["selected_text"],
-            "comment": hl_result.get("comment", ""),
-            "synced_to_docs": False,
-        }
-        st.session_state.highlights[idx].append(new_hl)
-        if book_id:
-            try:
-                storage.save_highlight(
-                    book_id, chapter_key, chapter["title"],
-                    hl_result["selected_text"], hl_result.get("comment", ""),
-                )
-                st.toast("Highlight saved!", icon="✅")
-            except Exception as e:
-                st.toast(f"Save failed: {e}", icon="❌")
-        st.session_state.google_doc_url = None
-        st.rerun()
+    # ── Add highlight form ─────────────────────────────────────────────────
+    with st.expander("📌 Add a highlight", expanded=False):
+        st.caption("Select text above, copy it (Ctrl+C), then paste it here.")
+        with st.form("highlight_form", clear_on_submit=True):
+            hl_text    = st.text_area("Highlighted text", placeholder="Paste the text you selected...", height=80)
+            hl_comment = st.text_input("Comment (optional)")
+            submitted  = st.form_submit_button("Save Highlight")
+
+        if submitted and hl_text.strip():
+            new_hl = {
+                "book_id": book_id,
+                "chapter_key": chapter_key,
+                "chapter_title": chapter["title"],
+                "selected_text": hl_text.strip(),
+                "comment": hl_comment.strip(),
+                "synced_to_docs": False,
+            }
+            st.session_state.highlights[idx].append(new_hl)
+            if book_id:
+                try:
+                    storage.save_highlight(
+                        book_id, chapter_key, chapter["title"],
+                        hl_text.strip(), hl_comment.strip(),
+                    )
+                    st.toast("Highlight saved!", icon="✅")
+                except Exception as e:
+                    st.toast(f"Save failed: {e}", icon="❌")
+            st.session_state.google_doc_url = None
+            st.rerun()
 
 st.divider()
 st.markdown("### Discussion")
