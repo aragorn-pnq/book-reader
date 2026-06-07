@@ -54,10 +54,10 @@ for key, default in {
 # ── Google OAuth callback ─────────────────────────────────────────────────
 _params = st.query_params
 if "code" in _params and st.session_state.google_creds is None:
-    _code = _params["code"]
-    _book_id = _params.get("state", "")
+    _code  = _params["code"]
+    _state = _params.get("state", "")
     try:
-        _creds = google_docs.exchange_code(_code)
+        _creds, _book_id = google_docs.exchange_code(_code, _state)
         st.session_state.google_creds = _creds
         st.session_state.google_auth_book_id = _book_id
         st.query_params.clear()
