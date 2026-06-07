@@ -434,10 +434,6 @@ if idx not in st.session_state.summaries:
         st.rerun()
 
 else:
-    st.markdown(st.session_state.summaries[idx])
-
-# ── Chapter Text + Highlighting ────────────────────────────────────────────
-with st.expander("Chapter Text (select any passage to highlight)", expanded=False):
     # Load highlights from Supabase if not yet in session
     if idx not in st.session_state.highlights:
         try:
@@ -447,16 +443,16 @@ with st.expander("Chapter Text (select any passage to highlight)", expanded=Fals
         st.session_state.highlights[idx] = saved_hls
 
     existing_hls = st.session_state.highlights[idx]
-    chapter_text = get_chapter_text(book, chapter["hrefs"])
+    summary_text  = st.session_state.summaries[idx]
 
     hl_result = _highlight_component(
-        chapter_text=chapter_text,
+        chapter_text=summary_text,
         highlights=existing_hls,
         key=f"hl_{idx}",
         height=624,
     )
 
-    # Process a new highlight only if it's different from the last one we saved
+    # Save new highlight if it's different from the last one processed
     if hl_result and hl_result != st.session_state.last_highlight.get(idx):
         st.session_state.last_highlight[idx] = hl_result
         new_hl = {
@@ -476,7 +472,6 @@ with st.expander("Chapter Text (select any passage to highlight)", expanded=Fals
                 )
             except Exception:
                 pass
-        # Reset doc URL so sidebar shows "sync" again
         st.session_state.google_doc_url = None
 
 st.divider()

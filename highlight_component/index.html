@@ -102,10 +102,8 @@
 
     window.addEventListener("message", (event) => {
       const d = event.data;
-      if (!d || !d.isStreamlitMessage) return;
-      if (d.type === "streamlit:render") {
-        renderContent((d.args || {}).chapter_text || "", (d.args || {}).highlights || []);
-      }
+      if (!d || d.type !== "streamlit:render") return;
+      renderContent((d.args || {}).chapter_text || "", (d.args || {}).highlights || []);
     });
 
     toStreamlit({ type: "streamlit:componentReady", apiVersion: 1 });
