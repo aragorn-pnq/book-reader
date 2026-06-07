@@ -452,6 +452,8 @@ else:
         height=624,
     )
 
+    st.caption(f"DEBUG component value: {hl_result}")
+
     # Save new highlight if it's different from the last one processed
     if hl_result and hl_result != st.session_state.last_highlight.get(idx):
         st.session_state.last_highlight[idx] = hl_result
