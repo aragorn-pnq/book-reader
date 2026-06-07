@@ -31,6 +31,14 @@ st.markdown("""
     .summary-box { border-left: 3px solid #4a90d9; padding-left: 1rem; }
     [data-testid="stSidebar"] { min-width: 280px; max-width: 320px; }
 </style>
+<script>
+// Prevent Streamlit from intercepting Ctrl+C (which triggers "Clear cache" dialog)
+document.addEventListener('keydown', function(e) {
+    if ((e.ctrlKey || e.metaKey) && (e.key === 'c' || e.key === 'C')) {
+        e.stopImmediatePropagation();
+    }
+}, true);
+</script>
 """, unsafe_allow_html=True)
 
 # ── Session state defaults ─────────────────────────────────────────────────
@@ -452,7 +460,7 @@ else:
             st.markdown(
                 f"<div style='background:#fff3b0;border-left:4px solid #e6b800;"
                 f"padding:10px 14px;border-radius:4px;margin-bottom:8px;"
-                f"font-size:14px;line-height:1.6'>"
+                f"font-size:14px;line-height:1.6;color:#111'>"
                 f"📌 {h['selected_text']}{('<br><em style=\"color:#666\">' + h['comment'] + '</em>') if h.get('comment') else ''}"
                 f"</div>",
                 unsafe_allow_html=True,
