@@ -3,7 +3,6 @@
 <head>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
-
     html, body { height: 100%; overflow: hidden; }
 
     #root {
@@ -60,12 +59,12 @@
     #save-btn   { background: #4a90d9; color: white; font-weight: 600; }
     #cancel-btn { background: #e0e0e0; color: #444; }
 
-    #status {
-      font-size: 11px;
-      padding: 3px 16px;
-      background: #f0f0f0;
+    #hint {
+      font-size: 12px;
       color: #888;
-      border-bottom: 1px solid #e0e0e0;
+      padding: 4px 16px;
+      background: #fafafa;
+      border-bottom: 1px solid #eee;
     }
 
     #content { padding: 16px; }
@@ -88,34 +87,38 @@
         <button id="cancel-btn">✕</button>
       </div>
     </div>
-    <div id="status">Loading chapter text...</div>
-    <div id="content"></div>
+    <div id="hint">Select any text to highlight it</div>
+    <div id="content"><em style="color:#bbb">Loading...</em></div>
   </div>
 
   <script>
-    const ROOT   = document.getElementById("root");
-    const STATUS = document.getElementById("status");
-
+    const ROOT = document.getElementById("root");
     let selectedText = "";
     let savedRange   = null;
-    let pendingShow  = false;  // flag: mouseup fired with valid selection
 
-    // ── Streamlit handshake ───────────────────────────────────────────────
+    function toStreamlit(msg) {
+      window.parent.postMessage(
+        Object.assign({ isStreamlitMessage: true }, msg),
+        "*"
+      );
+    }
+
+    // Set up message listener FIRST, then signal ready
     window.addEventListener("message", (event) => {
-      if (event.data.type === "streamlit:render") {
-        const { chapter_text, highlights } = event.data.args;
-        STATUS.textContent = "Select any text to highlight it";
+      const d = event.data;
+      if (!d || !d.isStreamlitMessage) return;
+      if (d.type === "streamlit:render") {
+        const { chapter_text, highlights } = d.args || {};
         renderContent(chapter_text || "", highlights || []);
       }
     });
 
-    // Signal ready AFTER listener is set up
-    window.parent.postMessage({ type: "streamlit:componentReady", apiVersion: 1 }, "*");
-    window.parent.postMessage({ type: "streamlit:setFrameHeight", height: 624 }, "*");
+    toStreamlit({ type: "streamlit:componentReady", apiVersion: 1 });
+    toStreamlit({ type: "streamlit:setFrameHeight", height: 624 });
 
     // ── Render ────────────────────────────────────────────────────────────
-    function esc(str) {
-      return String(str)
+    function esc(s) {
+      return String(s)
         .replace(/&/g, "&amp;")
         .replace(/</g, "&lt;")
         .replace(/>/g, "&gt;")
@@ -129,41 +132,36 @@
       [...highlights]
         .sort((a, b) => b.selected_text.length - a.selected_text.length)
         .forEach(h => {
-          const escaped = esc(h.selected_text);
+          const e = esc(h.selected_text);
           const tip = h.comment ? ` title="${esc(h.comment)}"` : "";
-          html = html.replace(escaped, `<span class="hl"${tip}>${escaped}</span>`);
+          html = html.replace(e, `<span class="hl"${tip}>${e}</span>`);
         });
 
       document.getElementById("content").innerHTML = html;
     }
 
-    // ── Selection detection ───────────────────────────────────────────────
-    // Use selectionchange to track what's selected at any moment
+    // ── Selection ─────────────────────────────────────────────────────────
     document.addEventListener("selectionchange", () => {
       const sel = window.getSelection();
       const text = sel ? sel.toString().trim() : "";
       if (text.length >= 3) {
         selectedText = text;
-        savedRange   = sel.rangeCount > 0 ? sel.getRangeAt(0).cloneRange() : null;
+        savedRange = sel.rangeCount > 0 ? sel.getRangeAt(0).cloneRange() : null;
       }
     });
 
-    // Use mouseup on document to trigger showing the toolbar
     document.addEventListener("mouseup", (e) => {
       if (e.target.closest("#toolbar")) return;
-
-      // Give browser 20ms to finalise the selection, then show toolbar
       setTimeout(() => {
-        const sel = window.getSelection();
-        const text = sel ? sel.toString().trim() : "";
-
-        // Also use whatever selectionchange captured
+        const text = (window.getSelection() || {}).toString
+          ? window.getSelection().toString().trim()
+          : "";
         const finalText = text.length >= 3 ? text : selectedText;
-
         if (finalText.length >= 3) {
           if (text.length >= 3) {
             selectedText = text;
-            savedRange   = sel && sel.rangeCount > 0 ? sel.getRangeAt(0).cloneRange() : savedRange;
+            const s = window.getSelection();
+            if (s && s.rangeCount > 0) savedRange = s.getRangeAt(0).cloneRange();
           }
           showToolbar(finalText);
         }
@@ -186,7 +184,6 @@
     // ── Save / Cancel ─────────────────────────────────────────────────────
     document.getElementById("save-btn").addEventListener("click", () => {
       const comment = document.getElementById("comment-input").value.trim();
-
       if (savedRange) {
         try {
           const span = document.createElement("span");
@@ -194,24 +191,22 @@
           if (comment) span.title = comment;
           savedRange.surroundContents(span);
           window.getSelection().removeAllRanges();
-        } catch (_) { /* cross-element selection */ }
+        } catch (_) {}
       }
-
       hideToolbar();
-      window.parent.postMessage({
+      toStreamlit({
         type: "streamlit:componentValue",
         value: { selected_text: selectedText, comment: comment }
-      }, "*");
-
+      });
       selectedText = "";
-      savedRange   = null;
+      savedRange = null;
     });
 
     document.getElementById("cancel-btn").addEventListener("click", () => {
       hideToolbar();
       window.getSelection().removeAllRanges();
       selectedText = "";
-      savedRange   = null;
+      savedRange = null;
     });
   </script>
 </body>
