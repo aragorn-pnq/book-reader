@@ -47,6 +47,8 @@ for key, default in {
     "google_doc_url": None,
     "google_auth_book_id": None,
     "last_highlight": {},  # idx → last processed highlight value
+    "book_save_failed": False,
+    "epub_bytes": None,
 }.items():
     if key not in st.session_state:
         st.session_state[key] = default
@@ -288,20 +290,31 @@ with st.sidebar:
             book_id = storage.make_book_id(book.metadata.title, book.metadata.authors)
 
             # Save to Supabase if not already saved
+            save_error = None
             try:
                 if not storage.get_book_record(book_id):
                     with st.spinner("Saving to library..."):
                         storage.save_book(book, epub_bytes, uploaded.name)
-            except Exception:
-                pass
+            except Exception as e:
+                save_error = e
 
             st.session_state.book = book
             st.session_state.book_id = book_id
+            st.session_state.book_save_failed = save_error is not None
+            st.session_state.epub_bytes = epub_bytes
             st.session_state.chapters = build_chapter_list(book)
             st.session_state.epub_name = uploaded.name
             st.session_state.selected_idx = None
             st.session_state.summaries = {}
             st.session_state.chats = {}
+
+            if save_error:
+                st.error(
+                    f"Couldn't save \"{book.metadata.title}\" to your library ({save_error}). "
+                    "Nothing will be persisted (no summaries, chat, or highlights) until this is "
+                    "fixed — the database may be waking up from being paused, wait a minute and "
+                    "re-upload to retry."
+                )
 
     book = st.session_state.book
     if book:
@@ -336,6 +349,20 @@ with st.sidebar:
 idx = st.session_state.selected_idx
 book = st.session_state.book
 chapters = st.session_state.chapters
+
+if book is not None and st.session_state.book_save_failed:
+    st.error(
+        f"\"{book.metadata.title}\" is NOT saved to your library. Nothing you do in this "
+        "session (summaries, chat, highlights) will be kept if you close this tab."
+    )
+    if st.button("Retry saving to library"):
+        try:
+            with st.spinner("Saving to library..."):
+                storage.save_book(book, st.session_state.epub_bytes, st.session_state.epub_name)
+            st.session_state.book_save_failed = False
+            st.rerun()
+        except Exception as e:
+            st.error(f"Retry failed: {e}")
 
 if book is None:
     st.markdown("## Welcome")
@@ -400,8 +427,8 @@ if idx not in st.session_state.summaries:
                     chapter["title"], chapter["section"],
                     summary_text,
                 )
-            except Exception:
-                pass
+            except Exception as e:
+                st.toast(f"Summary not saved: {e}", icon="⚠️")
 
         # Generate opening reflection question
         opening = ""
@@ -424,8 +451,8 @@ if idx not in st.session_state.summaries:
         if book_id:
             try:
                 storage.save_message(book_id, chapter_key, "assistant", opening)
-            except Exception:
-                pass
+            except Exception as e:
+                st.toast(f"Message not saved: {e}", icon="⚠️")
 
         st.rerun()
 
@@ -509,8 +536,8 @@ if user_input:
     if book_id:
         try:
             storage.save_message(book_id, chapter_key, "user", user_input)
-        except Exception:
-            pass
+        except Exception as e:
+            st.toast(f"Message not saved: {e}", icon="⚠️")
 
     with st.chat_message("assistant"):
         reply = ""
@@ -530,5 +557,5 @@ if user_input:
     if book_id:
         try:
             storage.save_message(book_id, chapter_key, "assistant", reply)
-        except Exception:
-            pass
+        except Exception as e:
+            st.toast(f"Message not saved: {e}", icon="⚠️")
