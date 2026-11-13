@@ -2,8 +2,15 @@ name: Supabase Keep-Alive
 
 on:
   schedule:
-    - cron: "0 9 */3 * *"   # every 3 days at 09:00 UTC
-  workflow_dispatch:          # allow manual trigger
+    - cron: "0 9 */3 * *"   # days 1,4,7,... at 09:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: supabase-keep-alive
+  cancel-in-progress: false
 
 jobs:
   ping:
@@ -20,3 +27,13 @@ jobs:
             echo "WARNING: unexpected status $STATUS"
             exit 1
           fi
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          ref: main
+      - name: Keep repository active
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit --allow-empty -m "chore: keep scheduled Supabase ping active"
+          git push origin HEAD:main
