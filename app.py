@@ -222,6 +222,27 @@ with st.sidebar:
                     st.rerun()
         st.divider()
 
+    # -- If we just returned from Google sign-in, load the book that started it --
+    if (
+        st.session_state.google_creds is not None
+        and st.session_state.google_auth_book_id
+        and st.session_state.book_id != st.session_state.google_auth_book_id
+    ):
+        try:
+            _record = storage.get_book_record(st.session_state.google_auth_book_id)
+        except Exception:
+            _record = None
+        if _record:
+            with st.spinner(f"Loading {_record['title']}..."):
+                _book, _chapters = load_book_from_storage(_record)
+            st.session_state.book = _book
+            st.session_state.book_id = _record["id"]
+            st.session_state.chapters = _chapters
+            st.session_state.epub_name = _record["id"]
+            st.session_state.selected_idx = None
+            st.session_state.summaries = {}
+            st.session_state.chats = {}
+
     # -- Google Docs sync --
     if st.session_state.book_id:
         st.markdown("**Highlights**")
