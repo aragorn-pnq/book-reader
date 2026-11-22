@@ -2,7 +2,7 @@ name: Supabase Keep-Alive
 
 on:
   schedule:
-    - cron: "0 9 */3 * *"   # days 1,4,7,... at 09:00 UTC
+    - cron: "0 9 * * *"   # every day at 09:00 UTC (was every 3 days - too little activity for Supabase's 7-day pause rule)
   workflow_dispatch:
 
 permissions:
@@ -16,14 +16,29 @@ jobs:
   ping:
     runs-on: ubuntu-latest
     steps:
-      - name: Ping Supabase DB
+      - name: Read ping (books table)
         run: |
           STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
             "${{ secrets.SUPABASE_URL }}/rest/v1/books?limit=1" \
             -H "apikey: ${{ secrets.SUPABASE_KEY }}" \
             -H "Authorization: Bearer ${{ secrets.SUPABASE_KEY }}")
-          echo "Supabase responded with HTTP $STATUS"
+          echo "Supabase books read responded with HTTP $STATUS"
           if [ "$STATUS" != "200" ]; then
+            echo "WARNING: unexpected status $STATUS"
+            exit 1
+          fi
+      - name: Write ping (keep_alive table)
+        run: |
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+            -X POST \
+            "${{ secrets.SUPABASE_URL }}/rest/v1/keep_alive" \
+            -H "apikey: ${{ secrets.SUPABASE_KEY }}" \
+            -H "Authorization: Bearer ${{ secrets.SUPABASE_KEY }}" \
+            -H "Content-Type: application/json" \
+            -H "Prefer: return=minimal" \
+            -d '{}')
+          echo "Supabase keep_alive insert responded with HTTP $STATUS"
+          if [ "$STATUS" != "201" ]; then
             echo "WARNING: unexpected status $STATUS"
             exit 1
           fi
